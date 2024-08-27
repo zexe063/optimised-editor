@@ -10,6 +10,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import io from 'socket.io-client';
 import './App.css';
+import { applyNodeChanges } from 'reactflow';
 
 const socket = io('http://localhost:5000');
 
@@ -45,13 +46,11 @@ function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [cursors, setCursors] = useState({});
   const containerRef = useRef(null);
+  const isDraggingRef = useRef(false);
+  const throttleRef = useRef(null);
 
   useEffect(() => {
-    const handleSetAdmin = (isAdminUser) => {
-      console.log('Set as admin:', isAdminUser);
-      setIsAdmin(isAdminUser);
-    };
-
+    const handleSetAdmin = (isAdminUser) => setIsAdmin(isAdminUser);
     const handleUpdateFlow = ({ nodes: updatedNodes, edges: updatedEdges }) => {
       if (Array.isArray(updatedNodes) && updatedNodes.every(node => node && typeof node.position === 'object')) {
         setNodes(updatedNodes);
@@ -60,11 +59,7 @@ function App() {
         setEdges(updatedEdges);
       }
     };
-
-    const handleUpdateCursors = (updatedCursors) => {
-      console.log('Cursors updated:', updatedCursors);
-      setCursors(updatedCursors);
-    };
+    const handleUpdateCursors = (updatedCursors) => setCursors(updatedCursors);
 
     socket.on('setAdmin', handleSetAdmin);
     socket.on('updateFlow', handleUpdateFlow);
@@ -77,24 +72,35 @@ function App() {
     };
   }, [setNodes, setEdges]);
 
-  useEffect(() => {
-    const handleMouseMove = (event) => {
-      if (containerRef.current && name) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const newCursor = {
-          x: event.clientX -rect.left,
-          y: event.clientY -rect.top
-        };
+  const throttledEmit = useCallback((newCursor) => {
+    if (!throttleRef.current) {
+      throttleRef.current = setTimeout(() => {
         socket.emit('cursorMove', newCursor);
-      }
-    };
+        throttleRef.current = null;
+      }, 16); // Approximately 60fps
+    }
+  }, []);
 
+  const handleMouseMove = useCallback((event) => {
+    if (containerRef.current && name) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const newCursor = {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+        pageX: event.pageX,
+        pageY: event.pageY,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        isDragging: isDraggingRef.current
+      };
+      throttledEmit(newCursor);
+    }
+  }, [name, throttledEmit]);
+
+  useEffect(() => {
     window.addEventListener('mousemove', handleMouseMove);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-    };
-  }, [name]);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [handleMouseMove]);
 
   const onConnect = useCallback((params) => {
     const newEdge = { ...params, id: `e${params.source}-${params.target}` };
@@ -104,10 +110,8 @@ function App() {
 
   const handleNodesChange = useCallback((changes) => {
     onNodesChange(changes);
-    const updatedNodes = nodes.map(node => {
-      const change = changes.find(c => c.id === node.id && c.type === 'position');
-      return change ? { ...node, position: change.position } : node;
-    });
+    const updatedNodes = applyNodeChanges(changes, nodes);
+    setNodes(updatedNodes);
     socket.emit('flowUpdate', { nodes: updatedNodes, edges });
   }, [nodes, edges, onNodesChange]);
 
@@ -122,6 +126,30 @@ function App() {
       socket.emit('setName', name);
     }
   };
+
+  const onNodeDragStart = useCallback(() => {
+    isDraggingRef.current = true;
+  }, []);
+
+  const onNodeDrag = useCallback((event, node) => {
+    if (containerRef.current && name) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const newCursor = {
+        x: node.position.x + rect.left,
+        y: node.position.y + rect.top,
+        pageX: node.position.x + rect.left + window.scrollX,
+        pageY: node.position.y + rect.top + window.scrollY,
+        clientX: node.position.x + rect.left,
+        clientY: node.position.y + rect.top,
+        isDragging: true
+      };
+      throttledEmit(newCursor);
+    }
+  }, [name, throttledEmit]);
+
+  const onNodeDragStop = useCallback(() => {
+    isDraggingRef.current = false;
+  }, []);
 
   return (
     <div style={{ height: '100vh', width: '100vw' }} ref={containerRef}>
@@ -143,6 +171,9 @@ function App() {
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
+        onNodeDragStart={onNodeDragStart}
+        onNodeDrag={onNodeDrag}
+        onNodeDragStop={onNodeDragStop}
         fitView
       >
         <MiniMap />
@@ -155,8 +186,8 @@ function App() {
             key={id}
             className="cursor"
             style={{
-              left: `${cursor.x}px`,
-              top: `${cursor.y}px`,
+              left: `${cursor.clientX}px`,
+              top: `${cursor.clientY}px`,
               position: 'absolute',
               pointerEvents: 'none',
               zIndex: 5
@@ -175,4 +206,3 @@ function App() {
 }
 
 export default App;
-
