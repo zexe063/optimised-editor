@@ -14,6 +14,8 @@ import { applyNodeChanges } from 'reactflow';
 
 const socket = io('http://localhost:5000');
 
+const generateRandomColor = () => '#' + Math.floor(Math.random()*16777215).toString(16);
+
 const initialNodes = [
   {
     id: '1',
@@ -59,7 +61,19 @@ function App() {
         setEdges(updatedEdges);
       }
     };
-    const handleUpdateCursors = (updatedCursors) => setCursors(updatedCursors);
+    const handleUpdateCursors = (updatedCursors) => {
+      setCursors(prevCursors => {
+        const newCursors = { ...prevCursors };
+        Object.entries(updatedCursors).forEach(([id, cursor]) => {
+          if (!newCursors[id]) {
+            newCursors[id] = { ...cursor, color: cursor.color || generateRandomColor() };
+          } else {
+            newCursors[id] = { ...newCursors[id], ...cursor };
+          }
+        });
+        return newCursors;
+      });
+    };
 
     socket.on('setAdmin', handleSetAdmin);
     socket.on('updateFlow', handleUpdateFlow);
@@ -181,7 +195,7 @@ function App() {
         <Background />
       </ReactFlow>
       {Object.entries(cursors).map(([id, cursor]) => (
-        cursor && (
+        cursor && id !== socket.id && (
           <div
             key={id}
             className="cursor"
@@ -193,11 +207,52 @@ function App() {
               zIndex: 5
             }}
           >
-            {id !== socket.id && (
-              <span className="cursor-name" style={{ color: 'blue' }}>
-                {cursor.name}
-              </span>
-            )}
+            <div
+              style={{
+                width: '10px',
+                height: '10px',
+                borderRadius: '50%',
+                backgroundColor: cursor.color,
+                position: 'absolute',
+                top: '-5px',
+                left: '-5px'
+              }}
+            />
+            <div
+              style={{
+                width: '2px',
+                height: '20px',
+                backgroundColor: cursor.color,
+                position: 'absolute',
+                top: '5px',
+                left: '0'
+              }}
+            />
+            <div
+              style={{
+                width: '20px',
+                height: '2px',
+                backgroundColor: cursor.color,
+                position: 'absolute',
+                top: '0',
+                left: '5px'
+              }}
+            />
+            <span
+              className="cursor-name"
+              style={{
+                color: cursor.color,
+                backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                padding: '2px 4px',
+                borderRadius: '4px',
+                position: 'absolute',
+                top: '20px',
+                left: '10px',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {cursor.name}
+            </span>
           </div>
         )
       ))}

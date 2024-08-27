@@ -17,6 +17,8 @@ let admin = null;
 const cursors = {};
 let flow = null;
 
+const generateRandomColor = () => '#' + Math.floor(Math.random()*16777215).toString(16);
+
 io.on('connection', (socket) => {
   console.log('New client connected');
 
@@ -26,7 +28,8 @@ io.on('connection', (socket) => {
       admin = socket.id;
       socket.emit('setAdmin', true);
     }
-    cursors[socket.id] = { name, x: 0, y: 0 };
+    const color = generateRandomColor();
+    cursors[socket.id] = { name, x: 0, y: 0, color };
     io.emit('updateCursors', cursors);
   });
 
